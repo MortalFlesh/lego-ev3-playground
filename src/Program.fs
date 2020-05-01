@@ -12,7 +12,7 @@ module Controller =
 
             let! _ =
                 [
-                    controller |> Controller.onButtonPressedAsync Medium onButtonPressed
+                    controller |> Controller.onButtonPressedAsync Low onButtonPressed
 
                     controller |> Controller.onPositionChangedAsync Medium onPositionChanged
                 ]
@@ -26,6 +26,55 @@ module Controller =
 module Ev3Brick =
     open Lego.Ev3.Core
     open Lego.Ev3.Desktop
+
+    [<RequireQualifiedAccess>]
+    type SingleOutput =
+        | A
+        | B
+        | C
+        | D
+
+    [<RequireQualifiedAccess>]
+    module private SingleOutput =
+        let rec outputPort = function
+            | SingleOutput.A -> OutputPort.A
+            | SingleOutput.B -> OutputPort.B
+            | SingleOutput.C -> OutputPort.C
+            | SingleOutput.D -> OutputPort.D
+
+    [<RequireQualifiedAccess>]
+    type Output =
+        | A
+        | B
+        | C
+        | D
+        | All
+        | Custom of SingleOutput list
+
+    [<RequireQualifiedAccess>]
+    module private Output =
+        let rec outputPort = function
+            | Output.A -> [ OutputPort.A ]
+            | Output.B -> [ OutputPort.B ]
+            | Output.C -> [ OutputPort.C ]
+            | Output.D -> [ OutputPort.D ]
+            | Output.All -> [ OutputPort.All ]
+            | Output.Custom [] -> []
+            | Output.Custom outputs ->
+                match outputs |> List.distinct |> List.sort with
+                | [ SingleOutput.A; SingleOutput.B; SingleOutput.C; SingleOutput.D ] -> [ OutputPort.All ]
+                | ports -> ports |> List.map SingleOutput.outputPort
+
+    [<RequireQualifiedAccess>]
+    type Direction =
+        | Up
+        | Down
+
+    [<RequireQualifiedAccess>]
+    module private Direction =
+        let apply value = function
+            | Direction.Up -> value
+            | Direction.Down -> value * -1
 
     type IPAddress = IPAddress of string
     type BluetoothPort = BluetoothPort of string
@@ -63,22 +112,37 @@ module Ev3Brick =
     let stopMotors (brick: Brick) =
         async {
             printfn "Stop motors!"
-            brick.BatchCommand.StopMotor(OutputPort.A, false)
-            brick.BatchCommand.StopMotor(OutputPort.B, false)
-
-            let! _ = brick.BatchCommand.SendCommandAsync() |> Async.AwaitTask
+            do! brick.DirectCommand.StopMotorAsync(OutputPort.All, false) |> Async.AwaitTask
             return()
         }
 
     let breakMotors (brick: Brick) =
         async {
             printfn "Break motors!"
-            brick.BatchCommand.StopMotor(OutputPort.A, true)
-            brick.BatchCommand.StopMotor(OutputPort.B, true)
-
-            let! _ = brick.BatchCommand.SendCommandAsync() |> Async.AwaitTask
+            do! brick.DirectCommand.StopMotorAsync(OutputPort.All, true) |> Async.AwaitTask
             return()
         }
+
+    let turnMotor90 direction output (brick: Brick) = async {
+        let steps = 90 |> uint32
+        let power = direction |> Direction.apply 100
+
+        match output |> Output.outputPort with
+        | [] -> return ()
+        | [ output ] ->
+            printf "Turn motor %A %A by 90 degres ... " output direction
+            do! brick.DirectCommand.StepMotorAtPowerAsync(output, power, steps, true) |> Async.AwaitTask
+            printfn "Turned!"
+        | outputs ->
+            printf "Turn motors %A %A by 90 degres ... " output direction
+            outputs
+            |> List.iter(fun output ->
+                brick.BatchCommand.StepMotorAtPower(output, power, steps, true)
+            )
+            let! _ = brick.BatchCommand.SendCommandAsync() |> Async.AwaitTask
+            printfn "Turned!"
+            return()
+    }
 
     let connect connection = async {
         let brick =
@@ -118,7 +182,8 @@ module Ev3Brick =
 
 open MF.XBoxController
 
-let configureBrick =
+[<RequireQualifiedAccess>]
+module Ev3Testing =
     let rec connect () = async {
         try
             return!
@@ -132,14 +197,17 @@ let configureBrick =
             return! connect()
     }
 
+let configureBrick =
     async {
-        let! brick = connect()
+        let! brick = Ev3Testing.connect()
 
         do!
             Controller.configure
                 (function
                     | A -> brick |> Ev3Brick.stopMotors |> Async.Start
                     | B -> brick |> Ev3Brick.makeBeep |> Async.Start
+                    | Rb -> brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Up Ev3Brick.Output.C |> Async.Start    // todo - add "memory" to allow only
+                    | Lb -> brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Down Ev3Brick.Output.C |> Async.Start  // [1 -> 4] (not cycle directly 4<->1)
                     | _button ->
                         //printfn "Button pressed %A" button
                         ()
@@ -147,7 +215,7 @@ let configureBrick =
                 (function
                     | PositionChanged.Lt (TriggerPressedPower power) ->
                         printfn "Lt -> %A" power
-                        brick |> Ev3Brick.startMotors (int power) 5000 |> Async.Start
+                        brick |> Ev3Brick.startMotors (int power) 10000 |> Async.Start
 
                     | PositionChanged.ThumbPadLeft { X = x; Y = y } ->
                         printfn "ThumbPadLeft X: %A, Y: %A" x y
@@ -170,11 +238,11 @@ let configureBrick =
                                  *)
                             else 0
 
-                        brick |> Ev3Brick.startMotors (int power) 5000 |> Async.Start
+                        brick |> Ev3Brick.startMotors (int power) 10000 |> Async.Start
 
                     | PositionChanged.Rt (TriggerPressedPower power) ->
                         printfn "Rt -> %A" power
-                        brick |> Ev3Brick.startMotors (int power * -1) 5000 |> Async.Start
+                        brick |> Ev3Brick.startMotors (int power * -1) 10000 |> Async.Start
 
                     //| PositionChanged.ThumbPadLeft { X = x; Y = y } -> printfn "ThumbPadLeft X: %A, Y: %A" x y
                     //| PositionChanged.ThumbPadRight { X = x; Y = y } -> printfn "ThumbPadRight X: %A, Y: %A" x y
@@ -295,6 +363,47 @@ module KeyBoardState =
         return! state |> tryKeyboard
     }
 
+[<RequireQualifiedAccess>]
+module Transmission =
+    let rec private listen (brick: Lego.Ev3.Core.Brick) = async {
+        let key = Console.ReadKey().Key
+        //printfn "Key ** %A **" key
+
+        let again =
+            brick |> listen
+
+        match key with
+        | ConsoleKey.UpArrow ->
+            printfn "^ Up"
+            do! brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Up Ev3Brick.Output.C
+
+            return! again
+
+        | ConsoleKey.DownArrow ->
+            printfn "v Down"
+            do! brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Down Ev3Brick.Output.C
+
+            return! again
+
+        | ConsoleKey.Spacebar ->
+            printfn "Stop!"
+            do! brick |> Ev3Brick.stopMotors
+            return! again
+
+        | ConsoleKey.Escape ->
+            printfn "Exit ..."
+            return ()
+
+        | _ ->
+            return! again
+    }
+
+    let test = async {
+        let! brick = Ev3Testing.connect()
+
+        do! brick |> listen
+    }
+
 [<EntryPoint>]
 let main argv =
     printfn "Start ..."
@@ -302,6 +411,7 @@ let main argv =
     configureBrick |> Async.RunSynchronously
 
     // KeyBoardState.initial |> KeyBoardState.tryKeyboard |> Async.RunSynchronously
+    // Transmission.test |> Async.RunSynchronously
 
     printfn "Done!"
     0
