@@ -7,6 +7,23 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="src/Controller.fs" />
+    <Compile Include="src/EV3Brick.fs" />
+    <Compile Include="src/EV3Testing.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="src/Transmission.fs" />
+    <Compile Include="src/Steering.fs" />
+    <Compile Include="src/Display.fs" />
+    <Compile Include="src/KeyboardState.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="src/HyperCar.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="src/Program.fs" />
   </ItemGroup>
 
