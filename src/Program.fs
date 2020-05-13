@@ -91,22 +91,38 @@ module Ev3Brick =
         brick.DirectCommand.PlayToneAsync(100, uint16 1000, uint16 300)
         |> Async.AwaitTask
 
-    let startMotors speed time (brick: Brick) =
+    let startMotorsAtOpositeSpeed (outputA, outputB) speed time (brick: Brick) =
         async {
-            printfn "Start motor at %d %%" speed
+            printfn "Start motors at %d %%" speed
 
-            (* printfn " -> initialize"
-            brick.BatchCommand.Initialize(CommandType.DirectNoReply) *)
-            printfn " -> turn A"
-            //brick.BatchCommand.TurnMotorAtSpeed(OutputPort.A, speed)
-            brick.BatchCommand.TurnMotorAtSpeedForTime(OutputPort.A, speed, uint32 time, false)
-            printfn " -> turn B"
-            brick.BatchCommand.TurnMotorAtSpeedForTime(OutputPort.B, -speed, uint32 time, false)
+            printfn " -> turn %A" outputA
+            brick.BatchCommand.TurnMotorAtSpeedForTime(outputA |> SingleOutput.outputPort, speed, uint32 time, false)
+            printfn " -> turn %A" outputB
+            brick.BatchCommand.TurnMotorAtSpeedForTime(outputB |> SingleOutput.outputPort, -speed, uint32 time, false)
 
             printfn " -> send"
             let! _ = brick.BatchCommand.SendCommandAsync() |> Async.AwaitTask
             printfn " -> done"
             return()
+        }
+
+    let startMotors output speed time (brick: Brick) =
+        async {
+            match output |> Output.outputPort with
+            | [] -> return ()
+            | [ output ] ->
+                printf "Turn motor %A at speed %A ... " output speed
+                do! brick.DirectCommand.TurnMotorAtSpeedForTimeAsync(output, speed, uint32 time, false) |> Async.AwaitTask
+                printfn "Turned!"
+            | outputs ->
+                printf "Turn motors %A at speed %A ... " output speed
+                outputs
+                |> List.iter(fun output ->
+                    brick.BatchCommand.TurnMotorAtSpeedForTime(output, speed, uint32 time, true)
+                )
+                let! _ = brick.BatchCommand.SendCommandAsync() |> Async.AwaitTask
+                printfn "Turned!"
+                return()
         }
 
     let stopMotors (brick: Brick) =
@@ -167,11 +183,11 @@ module Ev3Brick =
 
                 do! brick |> makeBeep
 
-                do! brick |> startMotors 30 2000
+                do! brick |> startMotorsAtOpositeSpeed (SingleOutput.A, SingleOutput.B) 30 2000
                 do! Async.Sleep 2000
-                do! brick |> startMotors 60 2000
+                do! brick |> startMotorsAtOpositeSpeed (SingleOutput.A, SingleOutput.B) 60 2000
                 do! Async.Sleep 2000
-                do! brick |> startMotors 90 5000
+                do! brick |> startMotorsAtOpositeSpeed (SingleOutput.A, SingleOutput.B) 90 5000
                 do! Async.Sleep 2000
                 do! brick |> stopMotors
 
@@ -200,6 +216,7 @@ module Ev3Testing =
 let configureBrick =
     async {
         let! brick = Ev3Testing.connect()
+        let motorsTimeout = 10000
 
         do!
             Controller.configure
@@ -215,7 +232,12 @@ let configureBrick =
                 (function
                     | PositionChanged.Lt (TriggerPressedPower power) ->
                         printfn "Lt -> %A" power
-                        brick |> Ev3Brick.startMotors (int power) 10000 |> Async.Start
+                        brick
+                        |> Ev3Brick.startMotorsAtOpositeSpeed
+                            (Ev3Brick.SingleOutput.A, Ev3Brick.SingleOutput.B)
+                            (int power)
+                            motorsTimeout
+                        |> Async.Start
 
                     | PositionChanged.ThumbPadLeft { X = x; Y = y } ->
                         printfn "ThumbPadLeft X: %A, Y: %A" x y
@@ -238,11 +260,34 @@ let configureBrick =
                                  *)
                             else 0
 
-                        brick |> Ev3Brick.startMotors (int power) 10000 |> Async.Start
+                        let steeringPower =
+                            let x = int x
+                            if x > 50 then x - 50
+                            elif x < 50 then 50 - x
+                            else 0
+
+                        brick
+                        |> Ev3Brick.startMotorsAtOpositeSpeed
+                            (Ev3Brick.SingleOutput.A, Ev3Brick.SingleOutput.B)
+                            (int power)
+                            motorsTimeout
+                        |> Async.Start
+
+                        brick
+                        |> Ev3Brick.startMotors
+                            Ev3Brick.Output.D
+                            (int steeringPower)
+                            motorsTimeout
+                        |> Async.Start
 
                     | PositionChanged.Rt (TriggerPressedPower power) ->
                         printfn "Rt -> %A" power
-                        brick |> Ev3Brick.startMotors (int power * -1) 10000 |> Async.Start
+                        brick
+                        |> Ev3Brick.startMotorsAtOpositeSpeed
+                            (Ev3Brick.SingleOutput.A, Ev3Brick.SingleOutput.B)
+                            (int power * -1)
+                            motorsTimeout
+                        |> Async.Start
 
                     //| PositionChanged.ThumbPadLeft { X = x; Y = y } -> printfn "ThumbPadLeft X: %A, Y: %A" x y
                     //| PositionChanged.ThumbPadRight { X = x; Y = y } -> printfn "ThumbPadRight X: %A, Y: %A" x y
