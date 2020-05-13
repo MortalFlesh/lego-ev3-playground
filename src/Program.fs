@@ -223,8 +223,8 @@ let configureBrick =
                 (function
                     | A -> brick |> Ev3Brick.stopMotors |> Async.Start
                     | B -> brick |> Ev3Brick.makeBeep |> Async.Start
-                    | Rb -> brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Up Ev3Brick.Output.C |> Async.Start    // todo - add "memory" to allow only
-                    | Lb -> brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Down Ev3Brick.Output.C |> Async.Start  // [1 -> 4] (not cycle directly 4<->1)
+                    | Rb -> brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Down Ev3Brick.Output.C |> Async.Start   // todo - add "memory" to allow only
+                    | Lb -> brick |> Ev3Brick.turnMotor90 Ev3Brick.Direction.Up Ev3Brick.Output.C |> Async.Start     // [1 -> 4] (not cycle directly 4<->1)
                     | _button ->
                         //printfn "Button pressed %A" button
                         ()
