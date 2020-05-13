@@ -262,8 +262,8 @@ let configureBrick =
 
                         let steeringPower =
                             let x = int x
-                            if x > 50 then x - 50
-                            elif x < 50 then 50 - x
+                            if x > 50 then (x - 50) * -1
+                            elif x < 50 then (50 - x)
                             else 0
 
                         brick
